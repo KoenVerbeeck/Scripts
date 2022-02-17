@@ -1,0 +1,43 @@
+CREATE FUNCTION dbo.ConvertLocalDateToUTC(@localDate DATETIME)
+RETURNS TABLE
+AS
+RETURN
+WITH cte_dstperiod AS
+(
+SELECT
+     dststart   = DATEADD(HOUR, 2, --> starts at 2 o'clock
+                        DATEADD(DAY
+                                ,1 - DATEPART(WEEKDAY --> assumes datefirst is set to 7 (Sunday is first day of the week)
+                                             ,DATEADD(DAY, -1, DATEADD(MONTH, 3, DATEADD(YEAR, DATEDIFF(YEAR, 0, @localDate), 0)))) --> March 31
+                                ,DATEADD(DAY, -1, DATEADD(MONTH, 3, DATEADD(YEAR, DATEDIFF(YEAR, 0, @localDate), 0)))))
+    ,dstend     = DATEADD(HOUR, 2, --> starts at 2 o'clock
+                        DATEADD(DAY
+                                ,1 - DATEPART(WEEKDAY --> substract the number of days to go back to the last Sunday of the month
+                                             ,DATEADD(DAY, -1, DATEADD(MONTH, 10, DATEADD(YEAR, DATEDIFF(YEAR, 0, @localDate), 0)))) --> October 31
+                                ,DATEADD(DAY, -1, DATEADD(MONTH, 10, DATEADD(YEAR, DATEDIFF(YEAR, 0, @localDate), 0)))))
+)
+,   cte_dst AS
+(
+    SELECT
+         dst    = IIF(@localDate >= dststart AND @localDate < dstend,1,0) --> is the supplied date in a DST period?
+        ,offset = +60 --> CET = UTC + 1 (60 minutes)
+    FROM cte_dstperiod
+)
+,   cte_offset AS
+(
+    SELECT
+         dstFlag        = dst
+        ,offset
+        ,localdate      = @localDate
+        ,localdateTZ    = IIF(dst = 1
+                            ,TODATETIMEOFFSET(@localDate, offset + 60)
+                            ,TODATETIMEOFFSET(@localDate, offset))
+    FROM cte_dst
+)
+SELECT
+     dstFlag    
+    ,offset     
+    ,localdate  
+    ,localdateTZ
+    ,UTCdate = CONVERT(DATETIME,localdateTZ,1)
+FROM cte_offset;
